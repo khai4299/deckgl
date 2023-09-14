@@ -1,25 +1,39 @@
-import React, { useState, useEffect } from "react";
-import ReactDOM from "react-dom";
-import DeckGL from "@deck.gl/react/typed";
-import { EditableGeoJsonLayer, SelectionLayer } from "@nebula.gl/layers";
-import { ViewMode, DrawPolygonMode } from "@nebula.gl/edit-modes";
-import "./App.css";
 import { ScatterplotLayer } from "@deck.gl/layers/typed";
-import { Toolbox } from "./Toolbox";
+import DeckGL from "@deck.gl/react/typed";
+import { DrawPolygonMode } from "@nebula.gl/edit-modes";
+import { EditableGeoJsonLayer, SelectionLayer } from "@nebula.gl/layers";
 import { SELECTION_TYPE } from "nebula.gl";
-import { data } from "./data";
-
-const MALE_COLOR = [0, 128, 255];
-const FEMALE_COLOR = [255, 0, 128];
+import { useEffect, useState } from "react";
+import "./App.css";
+import { Toolbox } from "./Toolbox";
+import VisualMap from "./VisualMap";
+import { hexToRgb } from "./utils";
 
 const INITIAL_VIEW_STATE = {
-    longitude: -74,
-    latitude: 40.7,
-    zoom: 11,
+    longitude: -19.577,
+    latitude: -13.624,
+    zoom: 3,
     maxZoom: 16,
     pitch: 0,
     bearing: 0,
 };
+
+export interface Data {
+    name: string;
+    mode: string;
+    text: string[];
+    x: number[];
+    y: number[];
+    marker: Marker;
+}
+
+export interface Marker {
+    color: string[];
+}
+export interface Catelogy {
+    name: string;
+    color: string;
+}
 function App() {
     const [features, setFeatures] = useState({
         type: "FeatureCollection",
@@ -30,61 +44,39 @@ function App() {
         SELECTION_TYPE.NONE
     );
     const [modeConfig, setModeConfig] = useState<any>({});
-    const [selectedFeatureIndexes, setSelectedFeatureIndexes] = useState([]);
-    const maleColor = MALE_COLOR;
-    const femaleColor = FEMALE_COLOR;
-    const [data, setData] = useState([]);
-    const [turnOffMale, setTurnOffMale] = useState(true);
-    const [addScatter, SetAddScatter] = useState(false);
+    const [selectedFeatureIndexes] = useState([]);
+    const [data, setData] = useState<Data[] | null>(null);
     const [layers, setLayers] = useState<any>([]);
+    const [catelogy, setCatelogy] = useState<Catelogy[]>([]);
+    const [layersDisable, setLayersDisable] = useState<string[]>([]);
+
     useEffect(() => {
+        // fetch(
+        //     "https://raw.githubusercontent.com/visgl/deck.gl-data/master/examples/scatterplot/manhattan.json"
+
         fetch(
-            "https://raw.githubusercontent.com/visgl/deck.gl-data/master/examples/scatterplot/manhattan.json"
+            "https://gist.githubusercontent.com/helrick/98afd97b03162fa3871e72e097b5170b/raw/e179f8b46969c0f8501bab8eb565561b6fb24d04/tsne-categorical.json"
         ).then(async (data) => {
-            const res = await data.json();
-            setData(
-                res.map((item: any) => ({
-                    x: item[0],
-                    y: item[1],
-                    z: item[2],
-                }))
-            );
+            const res: Data[] = await data.json();
+            const catelogyList: Catelogy[] = [];
+            res.forEach((item) => {
+                const name = item.name;
+                const color = item.marker.color[0];
+                catelogyList.push({
+                    name,
+                    color,
+                });
+            });
+            console.log(res);
+            setCatelogy(catelogyList);
+            setData(res);
         });
     }, []);
     useEffect(() => {
-        const layer = [
-            new (ScatterplotLayer as any)({
-                id: "scatter-plot",
-                data: !addScatter
-                    ? data.filter((item: any) => item.z === 1)
-                    : data.filter((item: any) => item.z === 1).slice(0, 100),
-                radiusScale: 30,
-                pickable: true,
-                radiusMinPixels: 0.25,
-                getPosition: (d: any) => [d.x, d.y],
-                getFillColor: (d: any) =>
-                    d[2] === 1 ? femaleColor : femaleColor,
-                getRadius: 1,
-                updateTriggers: {
-                    getFillColor: [maleColor, femaleColor],
-                },
-            }),
-            new (ScatterplotLayer as any)({
-                id: "scatter-plot-1",
-                data: data.filter((item: any) => item.z === 2),
-                radiusScale: 30,
-                pickable: true,
-                radiusMinPixels: 0.25,
-                getPosition: (d: any) => [d.x, d.y],
-                getFillColor: (d: any) => (d[2] === 1 ? maleColor : maleColor),
-                getRadius: 1,
-                // visible: turnOffMale,
-                updateTriggers: {
-                    getFillColor: [maleColor, femaleColor],
-                },
-            }),
+        if (data) {
+            const layerPlot: any = [];
             // @ts-ignore
-            new EditableGeoJsonLayer({
+            const editLayer = new EditableGeoJsonLayer({
                 data: features,
                 mode,
                 modeConfig,
@@ -92,9 +84,9 @@ function App() {
                 onEdit: ({ updatedData }: any) => {
                     setFeatures(updatedData);
                 },
-            }),
+            });
             // @ts-ignore
-            new SelectionLayer({
+            const selectionLayer = new SelectionLayer({
                 id: "selection",
                 selectionType: selectionTool,
                 onSelect: ({ pickingInfos }: any) => {
@@ -106,93 +98,69 @@ function App() {
                 getTentativeLineColor: () => [0, 0, 255, 255],
                 getTentativeLineDashArray: () => [0, 0],
                 lineWidthMinPixels: 3,
-            }),
-        ];
-        setLayers(layer);
-    }, [data]);
-    useEffect(() => {
-        const layer = layers.find(
-            (layer: any) => layer.id === "scatter-plot-1"
-        );
-        console.log(turnOffMale);
-        if (layer && layers) {
-            const newProps = {
-                ...layer,
-                props: {
-                    ...layer.props,
-                    visible: turnOffMale,
-                },
-            };
-            const newLayers = layers.filter(
-                (layer: any) => layer.id !== "scatter-plot-1"
-            );
-            newLayers.push(newProps);
-            setLayers(newLayers);
+            });
+            layerPlot.push(editLayer);
+            layerPlot.push(selectionLayer);
+            data.forEach((item) => {
+                const formatData = item.text.map((_, i) => ({
+                    x: item.x[i],
+                    y: item.y[i],
+                    color: item.marker.color[i],
+                    text: item.text[i],
+                    cluster: item.name,
+                }));
+                const scatterPlot = new (ScatterplotLayer as any)({
+                    id: `scatter-plot-${item.name}`,
+                    data: formatData,
+                    pickable: true,
+                    stroked: true,
+                    radiusUnits: "common",
+                    radiusScale: 0.5,
+                    lineWidthMinPixels: 0.5,
+                    visible: !layersDisable.includes(item.name),
+                    getPosition: (d: any) => [d.x, d.y],
+                    getFillColor: (d: any) => hexToRgb(d.color),
+                });
+                layerPlot.push(scatterPlot);
+            });
+
+            setLayers(layerPlot);
         }
-    }, [turnOffMale]);
-    console.log(layers);
+    }, [data, selectionTool, mode, features, layersDisable]);
+
+    const onClusterClick = (name: string) => {
+        let newLayersDisable = [];
+        if (layersDisable.includes(name)) {
+            newLayersDisable = layersDisable.filter((layer) => layer !== name);
+        } else {
+            newLayersDisable = [...layersDisable, name];
+        }
+        setLayersDisable(newLayersDisable);
+    };
     return (
         <>
-            <DeckGL
-                initialViewState={INITIAL_VIEW_STATE}
-                controller={{
-                    doubleClickZoom: false,
-                }}
-                layers={layers}
-                // getCursor={layer[1].getCursor.bind(layer[1])}
-            ></DeckGL>
-            <div style={{ position: "absolute", bottom: "10px", left: "10px" }}>
-                <button style={{ background: "rgb(255, 0, 128)" }}>
-                    Female
-                </button>
-                <button
-                    style={{ background: "rgb(0, 128, 255)" }}
-                    onClick={() => {
-                        setTurnOffMale(!turnOffMale);
+            {layers.length && (
+                <DeckGL
+                    initialViewState={INITIAL_VIEW_STATE}
+                    controller={{
+                        doubleClickZoom: false,
                     }}
-                >
-                    Male
-                </button>
-                <button
-                    style={{ background: "red" }}
-                    onClick={() => {
-                        SetAddScatter(!addScatter);
-                    }}
-                >
-                    Add Scatter
-                </button>
-                <button
-                    style={{ background: "red" }}
-                    onClick={() => {
-                        const dt = [];
-                        for (let i = 0; i < 1000; i++) {
-                            dt.push({
-                                x:
-                                    (Math.random() * (73.99999 - 73.986022) +
-                                        73.986022) *
-                                    -1,
-                                y:
-                                    Math.random() * (40.730743 - 40.72123) +
-                                    40.72123,
-                                z: 3,
-                            });
-                        }
-                        const newLayer = new (ScatterplotLayer as any)({
-                            id: "scatter-plot-2",
-                            data: dt,
-                            radiusScale: 30,
-                            pickable: true,
-                            radiusMinPixels: 0.25,
-                            getPosition: (d: any) => [d.x, d.y],
-                            getFillColor: (d: any) => [60, 179, 113],
-                            getRadius: 1,
-                        });
-                        setLayers((prev: any) => [...prev, newLayer]);
-                    }}
-                >
-                    Add Layers
-                </button>
-            </div>
+                    layers={layers}
+                    getTooltip={({ object }) =>
+                        object &&
+                        object.text &&
+                        object.cluster &&
+                        `${object.text}\nCluster ${object.cluster}`
+                    }
+                    getCursor={layers[0].getCursor.bind(layers[0])}
+                ></DeckGL>
+            )}
+
+            <VisualMap
+                listDisable={layersDisable}
+                catelogy={catelogy}
+                onClick={onClusterClick}
+            />
             <Toolbox
                 mode={mode}
                 onSetMode={(m) => {
